@@ -52,7 +52,7 @@ dependencies = [
     "PyYAML              ~= 6.0",
     "psutil              ~= 7.2.2",
     "colorama            ~= 0.4",
-    "typing_extensions   >= 4.13",                       # ReadOnly and NotRequired in public types
+    "typing_extensions   >= 4.16.0",                       # ReadOnly and NotRequired in public types
 ]
 
 [project.optional-dependencies]
